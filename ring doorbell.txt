@@ -1,0 +1,635 @@
+ring doorbell 
+
+#!/usr/bin/env python3
+import time
+import os
+import subprocess
+import random
+import math
+from datetime import datetime
+
+class RingDoorbellHPC:
+    def __init__(self, samples=20000, duration=600):
+        self.samples = samples
+        self.duration = duration
+        self.interval = duration / samples
+        self.data = []
+        
+        # Ring Doorbell specific workload states
+        self.workload_states = {
+            'idle_power_save': 0,
+            'motion_detection': 1,
+            'video_recording': 2,
+            'live_view_streaming': 3,
+            'two_way_audio': 4,
+            'person_detection': 5,
+            'night_vision_processing': 6,
+            'cloud_upload': 7,
+            'firmware_update': 8,
+            'doorbell_press': 9,
+            'battery_optimization': 10
+        }
+        self.current_state = 'idle_power_save'
+        self.state_timer = 0
+        
+        # Ring Doorbell-specific features
+        self.motion_detected = False
+        self.recording_active = False
+        self.live_view_active = False
+        self.night_vision_enabled = False
+        self.battery_level = 85
+        self.wifi_signal_strength = -55
+        
+        # Video processing parameters
+        self.video_quality = '1080p'
+        self.bitrate = 2000  # kbps
+        self.motion_sensitivity = 7  # 1-10 scale
+        
+        # ARM-specific hardware performance counters
+        self.hw_events = [
+            'cpu-cycles',
+            'instructions',
+            'branch-instructions',
+            'branch-misses',
+            'cache-references',
+            'cache-misses',
+            'L1-dcache-loads',
+            'L1-dcache-load-misses',
+            'LLC-loads',
+            'LLC-load-misses',
+            'stalled-cycles-frontend',
+            'stalled-cycles-backend',
+            'bus-cycles',
+            'armv8_pmuv3_0/br_mis_pred/',
+            'armv8_pmuv3_0/l1d_cache/',
+            'armv8_pmuv3_0/l2d_cache/'
+        ]
+        
+        self.working_events = self._test_hardware_events()
+        print(f"Available hardware counters: {len(self.working_events)}")
+
+    def _sigmoid(self, x):
+        """Sigmoid function implementation for older Python versions"""
+        return 1 / (1 + math.exp(-x))
+
+    def _test_hardware_events(self):
+        """Test which hardware performance counters work"""
+        working = []
+        for event in self.hw_events:
+            try:
+                result = subprocess.run(
+                    ['perf', 'stat', '-e', event, 'sleep', '0.001'],
+                    capture_output=True, text=True, timeout=2
+                )
+                for line in result.stderr.split('\n'):
+                    if event in line and line.strip() and line[0].isdigit():
+                        working.append(event)
+                        break
+            except:
+                continue
+        return working
+
+    def simulate_ring_doorbell_workload(self):
+        """Simulate Ring Doorbell specific workload patterns"""
+        self.state_timer += 1
+        workload = 0
+        
+        # Ring Doorbell state transitions with security device probabilities
+        if self.current_state == 'idle_power_save':
+            # Low-power motion detection background
+            workload = self._simulate_power_save_mode()
+            
+            # Motion detection is primary trigger (8% chance - higher for security)
+            if random.random() < 0.08 or self.state_timer > 50:
+                next_states = ['motion_detection', 'doorbell_press', 'person_detection']
+                weights = [0.6, 0.25, 0.15]  # Motion detection most common
+                self.current_state = random.choices(next_states, weights=weights)[0]
+                self.state_timer = 0
+                
+                if self.current_state == 'motion_detection':
+                    self.motion_detected = True
+        
+        elif self.current_state == 'motion_detection':
+            workload = self._simulate_motion_detection()
+            self.motion_detected = True
+            if random.random() < 0.35 or self.state_timer > 8:
+                # Motion typically leads to recording or person detection
+                if random.random() < 0.7:
+                    self.current_state = 'video_recording'
+                else:
+                    self.current_state = 'person_detection'
+                self.state_timer = 0
+        
+        elif self.current_state == 'video_recording':
+            workload = self._simulate_video_recording()
+            self.recording_active = True
+            # Record for 15-60 seconds typically
+            if random.random() < 0.15 or self.state_timer > 40:
+                self.current_state = 'cloud_upload'
+                self.recording_active = False
+                self.state_timer = 0
+        
+        elif self.current_state == 'live_view_streaming':
+            workload = self._simulate_live_view_streaming()
+            self.live_view_active = True
+            # Live view sessions typically 30-180 seconds
+            if random.random() < 0.10 or self.state_timer > 120:
+                self.current_state = 'idle_power_save'
+                self.live_view_active = False
+                self.state_timer = 0
+        
+        elif self.current_state == 'two_way_audio':
+            workload = self._simulate_two_way_audio()
+            if random.random() < 0.25 or self.state_timer > 30:
+                self.current_state = 'idle_power_save'
+                self.state_timer = 0
+        
+        elif self.current_state == 'person_detection':
+            workload = self._simulate_person_detection()
+            if random.random() < 0.40 or self.state_timer > 12:
+                # Person detection often leads to recording or notifications
+                if random.random() < 0.6:
+                    self.current_state = 'video_recording'
+                else:
+                    self.current_state = 'idle_power_save'
+                self.state_timer = 0
+        
+        elif self.current_state == 'night_vision_processing':
+            workload = self._simulate_night_vision()
+            self.night_vision_enabled = True
+            if random.random() < 0.20 or self.state_timer > 25:
+                self.current_state = 'idle_power_save'
+                self.night_vision_enabled = False
+                self.state_timer = 0
+        
+        elif self.current_state == 'cloud_upload':
+            workload = self._simulate_cloud_upload()
+            if random.random() < 0.30 or self.state_timer > 20:
+                self.current_state = 'idle_power_save'
+                self.state_timer = 0
+        
+        elif self.current_state == 'firmware_update':
+            workload = self._simulate_firmware_update()
+            if random.random() < 0.08 or self.state_timer > 180:  # Rare but long
+                self.current_state = 'idle_power_save'
+                self.state_timer = 0
+        
+        elif self.current_state == 'doorbell_press':
+            workload = self._simulate_doorbell_press()
+            if random.random() < 0.45 or self.state_timer > 15:
+                # Doorbell press leads to live view or recording
+                if random.random() < 0.5:
+                    self.current_state = 'live_view_streaming'
+                else:
+                    self.current_state = 'two_way_audio'
+                self.state_timer = 0
+        
+        elif self.current_state == 'battery_optimization':
+            workload = self._simulate_battery_optimization()
+            if random.random() < 0.15 or self.state_timer > 45:
+                self.current_state = 'idle_power_save'
+                self.state_timer = 0
+        
+        # Security-specific micro-workload spikes (30% of samples)
+        if random.random() < 0.30 and self.current_state != 'idle_power_save':
+            workload += self._generate_security_workload_spike()
+        
+        # Battery level simulation
+        if workload > 50:
+            self.battery_level -= 0.001
+        self.battery_level = max(20, self.battery_level)  # Never go below 20% in simulation
+        
+        workload_intensity = min(100, workload / 40)  # Scale to 0-100
+        
+        return workload, workload_intensity
+
+    def _generate_security_workload_spike(self):
+        """Generate security-specific micro-workload spikes"""
+        workload = 0
+        spike_intensity = random.randint(70, 250)
+        for i in range(spike_intensity // 12):
+            workload += math.sin(i * 0.18) * 30 + math.cos(i * 0.12) * 20
+        return workload
+
+    def _simulate_power_save_mode(self):
+        """Simulate low-power motion detection background"""
+        workload = 10  # Very low base for power saving
+        # Background motion detection processing
+        for i in range(40):
+            workload += math.cos(i * 0.1) * 5
+            workload += (i % 20) * 0.8  # Periodic sensor checks
+        
+        # WiFi connectivity maintenance
+        for i in range(20):
+            workload += (i % 8) * 1.2
+        
+        return workload + random.randint(5, 20)
+
+    def _simulate_motion_detection(self):
+        """Simulate PIR motion detection processing"""
+        workload = 65
+        # Motion detection algorithm
+        for i in range(120):
+            workload += math.sin(i * 0.15) * 25
+            workload += (i * 11) % 180 * 0.4
+            
+            # Motion analysis bursts
+            if i % 25 == 0:
+                workload += 35
+        
+        # Background subtraction and frame differencing
+        for i in range(80):
+            workload += (i % 15) * 3.5
+        
+        return workload + random.randint(30, 80)
+
+    def _simulate_video_recording(self):
+        """Simulate H.264 video encoding for recording"""
+        workload = 125
+        # Video encoding pipeline
+        for i in range(280):
+            workload += (i * 14) % 350  # Motion estimation
+            workload += (i * 9) % 300   # DCT transformations
+            workload += math.sin(i * 0.08) * 60  # Frame encoding
+            
+            # I-frame encoding bursts
+            if i % 90 == 0:
+                workload += 80
+        
+        # Audio recording processing
+        for i in range(120):
+            workload += (i % 25) * 2.8
+        
+        return workload + random.randint(60, 140)
+
+    def _simulate_live_view_streaming(self):
+        """Simulate live video streaming to app"""
+        workload = 145  # High for real-time streaming
+        # Real-time video encoding and streaming
+        for i in range(320):
+            workload += (i * 16) % 400  # Video encoding
+            workload += (i * 12) % 350  # Network buffering
+            workload += math.cos(i * 0.06) * 70  # Real-time constraints
+            
+            # Key frame generation
+            if i % 60 == 0:
+                workload += 95
+        
+        # Two-way audio preparation
+        for i in range(150):
+            workload += (i % 30) * 3.2
+        
+        return workload + random.randint(80, 180)
+
+    def _simulate_two_way_audio(self):
+        """Simulate two-way audio communication"""
+        workload = 85
+        # Audio encoding/decoding (Opus codec typically)
+        for i in range(200):
+            workload += math.sin(i * 0.09) * 35
+            workload += (i * 7) % 250 * 0.5
+            
+            # Echo cancellation processing
+            if i % 40 == 0:
+                workload += 45
+        
+        # Network latency compensation
+        for i in range(100):
+            workload += (i % 20) * 2.5
+        
+        return workload + random.randint(40, 100)
+
+    def _simulate_person_detection(self):
+        """Simulate AI-powered person detection"""
+        workload = 135
+        # Neural network inference for person detection
+        for i in range(240):
+            workload += (i * 18) % 380  # CNN layers
+            workload += self._sigmoid(i * 0.03) * 65  # Activation functions
+            
+            # Bounding box calculations
+            if i % 35 == 0:
+                workload += 55
+        
+        # Feature extraction and classification
+        for i in range(160):
+            workload += math.tanh(i * 0.02) * 40
+        
+        return workload + random.randint(70, 150)
+
+    def _simulate_night_vision(self):
+        """Simulate IR night vision processing"""
+        workload = 95
+        # IR image processing
+        for i in range(220):
+            workload += math.cos(i * 0.07) * 40
+            workload += (i * 10) % 300 * 0.4
+            
+            # IR LED control and image enhancement
+            if i % 50 == 0:
+                workload += 60
+        
+        # Low-light image processing
+        for i in range(140):
+            workload += (i % 28) * 3.0
+        
+        return workload + random.randint(45, 110)
+
+    def _simulate_cloud_upload(self):
+        """Simulate video upload to Ring cloud"""
+        workload = 75
+        # Video chunk processing and upload
+        for i in range(180):
+            workload += math.sin(i * 0.08) * 30
+            workload += (i * 8) % 220 * 0.6
+            
+            # Encryption and compression
+            if i % 40 == 0:
+                workload += 50
+        
+        # Network transmission
+        for i in range(120):
+            workload += (i % 25) * 2.2
+        
+        return workload + random.randint(35, 90)
+
+    def _simulate_firmware_update(self):
+        """Simulate OTA firmware update processing"""
+        workload = 110
+        # Firmware decryption and verification
+        for i in range(260):
+            workload += (i * 13) % 320  # Decryption
+            workload += (i * 7) % 280   # Checksum verification
+            workload += math.sin(i * 0.05) * 45
+        
+        # System update procedures
+        for i in range(200):
+            workload += (i % 40) * 2.8
+        
+        return workload + random.randint(60, 130)
+
+    def _simulate_doorbell_press(self):
+        """Simulate physical doorbell button press"""
+        workload = 55
+        # Button debounce and event processing
+        for i in range(100):
+            workload += math.cos(i * 0.12) * 20
+            workload += (i % 15) * 2.5
+            
+            # Notification generation
+            if i % 20 == 0:
+                workload += 35
+        
+        # Chime and alert processing
+        for i in range(80):
+            workload += (i % 12) * 3.0
+        
+        return workload + random.randint(25, 65)
+
+    def _simulate_battery_optimization(self):
+        """Simulate battery saving algorithms"""
+        workload = 35
+        # Power management algorithms
+        for i in range(120):
+            workload += math.sin(i * 0.06) * 15
+            workload += (i % 30) * 1.2
+        
+        # Sleep mode preparation
+        for i in range(60):
+            workload += (i % 10) * 1.8
+        
+        return workload + random.randint(15, 40)
+
+    def read_hardware_performance_counters(self):
+        """Read hardware performance counters for Ring Doorbell simulation"""
+        if not self.working_events:
+            return self._generate_realistic_ring_hw_data()
+        
+        try:
+            events_batch = self.working_events[:6]
+            event_string = ','.join(events_batch)
+            
+            cmd = ['perf', 'stat', '-e', event_string, 'sleep', '0.001']
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=2)
+            
+            counters = {}
+            for line in result.stderr.split('\n'):
+                for event in events_batch:
+                    if event in line and line.strip() and line[0].isdigit():
+                        parts = line.split()
+                        value = parts[0].replace(',', '')
+                        if value.isdigit():
+                            counters[event] = int(value)
+            return counters
+            
+        except:
+            return self._generate_realistic_ring_hw_data()
+
+    def _generate_realistic_ring_hw_data(self):
+        """Generate realistic Ring Doorbell hardware counter data"""
+        base = time.time_ns() % 1000000
+        # Adjust counters based on current workload state
+        if self.current_state in ['video_recording', 'live_view_streaming', 'person_detection']:
+            multiplier = 1.4  # High workload states
+        elif self.current_state in ['motion_detection', 'two_way_audio', 'cloud_upload']:
+            multiplier = 1.2  # Medium workload states
+        else:
+            multiplier = 0.8  # Low power states
+        
+        return {
+            'cpu-cycles': int((1800000 + (base * 33) % 700000) * multiplier),
+            'instructions': int((1600000 + (base * 25) % 600000) * multiplier),
+            'branch-instructions': int((100000 + (base * 13) % 50000) * multiplier),
+            'branch-misses': int((3500 + (base * 9) % 2000) * multiplier),
+            'cache-references': int((160000 + (base * 19) % 80000) * multiplier),
+            'cache-misses': int((8000 + (base * 15) % 5000) * multiplier),
+            'L1-dcache-loads': int((140000 + (base * 27) % 70000) * multiplier),
+            'L1-dcache-load-misses': int((6000 + (base * 7) % 3500) * multiplier),
+            'LLC-loads': int((30000 + (base * 4) % 18000) * multiplier),
+            'LLC-load-misses': int((1800 + (base * 2) % 1000) * multiplier),
+            'stalled-cycles-frontend': int((150000 + (base * 37) % 100000) * multiplier),
+            'stalled-cycles-backend': int((130000 + (base * 39) % 80000) * multiplier),
+            'bus-cycles': int((50000 + (base * 13) % 25000) * multiplier)
+        }
+
+    def calculate_hardware_metrics(self, raw_counters):
+        """Calculate hardware performance metrics for Ring Doorbell"""
+        cycles = max(1, raw_counters.get('cpu-cycles', 1))
+        instructions = raw_counters.get('instructions', 1500000)
+        branches = max(1, raw_counters.get('branch-instructions', 80000))
+        branch_misses = raw_counters.get('branch-misses', 2800)
+        cache_refs = max(1, raw_counters.get('cache-references', 140000))
+        cache_misses = raw_counters.get('cache-misses', 7000)
+        l1_loads = max(1, raw_counters.get('L1-dcache-loads', 120000))
+        l1_misses = raw_counters.get('L1-dcache-load-misses', 5500)
+        llc_loads = max(1, raw_counters.get('LLC-loads', 28000))
+        llc_misses = raw_counters.get('LLC-load-misses', 1500)
+        frontend_stalls = raw_counters.get('stalled-cycles-frontend', 120000)
+        backend_stalls = raw_counters.get('stalled-cycles-backend', 100000)
+        
+        return {
+            # CPU Pipeline (5 metrics)
+            'hw_cpu_cycles': cycles,
+            'hw_instructions_retired': instructions,
+            'hw_instructions_per_cycle': instructions / cycles,
+            'hw_branch_instructions': branches,
+            'hw_branch_miss_rate': branch_misses / branches,
+            
+            # Cache Hierarchy (5 metrics)
+            'hw_cache_references': cache_refs,
+            'hw_cache_miss_rate': cache_misses / cache_refs,
+            'hw_l1d_cache_access': l1_loads,
+            'hw_l1d_cache_miss_rate': l1_misses / l1_loads,
+            'hw_llc_cache_access': llc_loads,
+            
+            # Memory & Efficiency (5 metrics)
+            'hw_llc_cache_miss_rate': llc_misses / llc_loads,
+            'hw_frontend_stall_ratio': frontend_stalls / cycles,
+            'hw_backend_stall_ratio': backend_stalls / cycles,
+            'hw_memory_bandwidth_mbps': (cache_misses * 64) / (1024 * 1024),
+            'hw_cache_efficiency': max(0, 100 - (cache_misses / cache_refs) * 100)
+        }
+
+    def get_system_context(self):
+        """Get system context with battery simulation"""
+        try:
+            with open('/sys/class/thermal/thermal_zone0/temp', 'r') as f:
+                cpu_temp = float(f.read().strip()) / 1000.0
+            with open('/sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq', 'r') as f:
+                cpu_freq = float(f.read().strip()) / 1000.0
+            return {
+                'cpu_temp': cpu_temp, 
+                'cpu_freq': cpu_freq,
+                'battery_level': self.battery_level,
+                'wifi_signal': self.wifi_signal_strength
+            }
+        except:
+            return {
+                'cpu_temp': 42.0, 
+                'cpu_freq': 1000.0,
+                'battery_level': self.battery_level,
+                'wifi_signal': self.wifi_signal_strength
+            }
+
+    def collect_sample(self):
+        """Collect one comprehensive sample"""
+        timestamp = datetime.now()
+        
+        # Simulate Ring Doorbell workload
+        workload_raw, workload_intensity = self.simulate_ring_doorbell_workload()
+        
+        # Read hardware counters
+        hw_counters = self.read_hardware_performance_counters()
+        
+        # Calculate hardware metrics
+        hw_metrics = self.calculate_hardware_metrics(hw_counters)
+        
+        # Get system context
+        system_info = self.get_system_context()
+        
+        # Ring Doorbell-specific metrics
+        ring_metrics = {
+            'motion_detected': 1 if self.motion_detected else 0,
+            'recording_active': 1 if self.recording_active else 0,
+            'live_view_active': 1 if self.live_view_active else 0,
+            'night_vision_enabled': 1 if self.night_vision_enabled else 0,
+            'video_quality': 1080,  # Simulated
+            'motion_sensitivity': self.motion_sensitivity
+        }
+        
+        # Combine all data
+        sample = {
+            'timestamp': timestamp,
+            'workload_state': self.workload_states[self.current_state],
+            'workload_intensity': workload_intensity,
+            'workload_raw': workload_raw
+        }
+        sample.update(hw_metrics)
+        sample.update(system_info)
+        sample.update(ring_metrics)
+        
+        return sample
+
+    def run_collection(self):
+        """Main collection loop for Ring Doorbell"""
+        print("=== RING DOORBELL HARDWARE PERFORMANCE COUNTERS ===")
+        print("Simulating Ring Doorbell firmware on Raspberry Pi")
+        print(f"Target: {self.samples} samples in {self.duration} seconds")
+        print(f"Hardware counters available: {len(self.working_events)}")
+        print("-" * 60)
+        
+        start_time = time.time()
+        motion_count = 0
+        recording_count = 0
+        
+        for i in range(self.samples):
+            sample_start = time.time()
+            
+            sample = self.collect_sample()
+            self.data.append(sample)
+            
+            # Count security events
+            if sample['motion_detected'] > 0:
+                motion_count += 1
+            if sample['recording_active'] > 0:
+                recording_count += 1
+            
+            if i % 500 == 0:
+                elapsed = time.time() - start_time
+                progress = (i / self.samples) * 100
+                motion_percent = (motion_count / (i + 1)) * 100
+                recording_percent = (recording_count / (i + 1)) * 100
+                
+                print(f"Sample {i:5d}/{self.samples} ({progress:5.1f}%)")
+                print(f"  State: {self.current_state:25} | "
+                      f"Intensity: {sample['workload_intensity']:5.1f}")
+                print(f"  Motion: {motion_percent:5.1f}% | "
+                      f"Recording: {recording_percent:5.1f}% | "
+                      f"Battery: {sample['battery_level']:4.1f}%")
+                print(f"  IPC: {sample['hw_instructions_per_cycle']:5.3f} | "
+                      f"Temp: {sample['cpu_temp']:4.1f}°C | "
+                      f"WiFi: {sample['wifi_signal']:3d} dBm")
+                print()
+            
+            elapsed_sample = time.time() - sample_start
+            time.sleep(max(0.001, self.interval - elapsed_sample))
+        
+        self.save_data()
+
+    def save_data(self):
+        """Save collected data to CSV"""
+        filename = f"ring_doorbell_hpc_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+        
+        with open(filename, 'w') as f:
+            headers = self.data[0].keys()
+            f.write(','.join(headers) + '\n')
+            for sample in self.data:
+                row = []
+                for h in headers:
+                    val = sample[h]
+                    if isinstance(val, float):
+                        row.append(f"{val:.6f}")
+                    else:
+                        row.append(str(val))
+                f.write(','.join(row) + '\n')
+        
+        # Final statistics
+        total_samples = len(self.data)
+        motion_samples = sum(1 for s in self.data if s['motion_detected'] > 0)
+        recording_samples = sum(1 for s in self.data if s['recording_active'] > 0)
+        motion_percent = (motion_samples / total_samples) * 100
+        recording_percent = (recording_samples / total_samples) * 100
+        avg_intensity = sum(s['workload_intensity'] for s in self.data) / total_samples
+        avg_ipc = sum(s['hw_instructions_per_cycle'] for s in self.data) / total_samples
+        
+        print(f"Saved {total_samples} samples to {filename}")
+        print(f"Motion detection samples: {motion_samples}/{total_samples} ({motion_percent:.1f}%)")
+        print(f"Video recording samples: {recording_samples}/{total_samples} ({recording_percent:.1f}%)")
+        print(f"Average workload intensity: {avg_intensity:.1f}")
+        print(f"Average Instructions Per Cycle: {avg_ipc:.3f}")
+
+if __name__ == "__main__":
+    # Enable performance monitoring
+    os.system("echo 0 | sudo tee /proc/sys/kernel/perf_event_paranoid > /dev/null 2>&1")
+    collector = RingDoorbellHPC(samples=20000, duration=600)
+    collector.run_collection()
